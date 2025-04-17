@@ -1,0 +1,77 @@
+name: Terraform Test Module - Security Group
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Every day at 00:00 
+env:
+  REPOSITORY_URL: https://github.com/${{ github.repository }}
+  MODULE_NAME: securitygroup
+  MODULE_PATH: modules/securitygroup
+  VERSIONS: "v1.0 v1.1 v1.1.1"
+  LAMBDA_FUNCTION_NAME: register_module_result
+  LAMBDA_REGION: eu-west-1
+
+  
+jobs:
+  terraform-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+        aws-region: eu-west-1
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.11.4
+
+    - name: Loop through tags and test Terraform
+      shell: bash
+      run: |
+        IFS=' ' read -r -a TAGS <<< "$VERSIONS"
+
+        for TAG in "${TAGS[@]}"; do
+          echo "===== Processing tag: $TAG ====="
+
+          # Clean working directory
+          git reset --hard > /dev/null 2>&1
+          git clean -fdx > /dev/null 2>&1
+
+          # Checkout tag
+          git fetch --tags > /dev/null 2>&1
+          git checkout "$TAG" > /dev/null 2>&1
+
+          # Init & test
+          cd $MODULE_PATH
+          terraform init > /dev/null 2>&1
+          if terraform test; then
+            RESULT="success"
+            echo "✅ Test succeeded for $TAG"
+          else
+            RESULT="failure"
+            echo "❌ Test failed for $TAG"
+          fi
+
+          aws lambda invoke \
+            --function-name $LAMBDA_FUNCTION_NAME \
+            --region $LAMBDA_REGION \
+            --payload "{\"module_name\": \"$MODULE_NAME\", \"module_version\": \"$TAG\", \"module_status\": \"$RESULT\", \"module_url\": \"$REPOSITORY_URL/tree/$TAG\"}" \
+            /tmp/lambda-response.json \
+            --cli-binary-format raw-in-base64-out > /dev/null 2>&1 || true
+
+            cd -
+        done
