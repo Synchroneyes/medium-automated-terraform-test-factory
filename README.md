@@ -16,7 +16,7 @@ To use this solution, there are few requirements:
 5. IAM User with Access Key and Secret Access Key
 6. Secrets within your GitHub Repository:
     - AWS_ACCESS_KEY_ID
-    - AWS_SECRET_KEY
+    - AWS_SECRET_KEY 
 
 ## Setup
 
